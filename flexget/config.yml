@@ -1,0 +1,251 @@
+web_server: yes
+
+schedules:
+  - tasks: '*'
+    interval:
+      minutes: 30
+
+templates:
+
+  series:
+    configure_series:
+      from:
+        trakt_list:
+          username: miusuario
+          account: miusuario
+          strip_dates: yes
+          list: series
+          type: shows
+      settings:
+          exact: yes
+          propers: 12 hours
+          quality: 1080p+ hdtv+
+    priority: 2
+    seen: local
+    no_entries_ok: yes
+    accept_all: yes
+    trakt_lookup: yes
+    torrent_alive: 1 # minimum 1 seed
+    content_size:
+      min: 20
+      max: 2000
+
+  movies:
+    regexp:
+      reject:
+        - BluRay: {from: title}
+    trakt_list:
+      username: miusuario
+      account: miusuario
+      strip_dates: yes
+      list: pelis
+      type: movies
+    seen: local
+    no_entries_ok: yes
+    accept_all: yes
+    trakt_lookup: yes
+    priority: 10
+    content_size:
+      min: 20
+      max: 4000
+
+tasks:
+  sync-series:
+    seen: local
+    no_entries_ok: yes
+    trakt_lookup: yes
+    trakt_list:
+      username: miusuario
+      account: miusuario
+      strip_dates: yes
+      list: series
+      type: shows
+    accept_all: yes
+    set_series_begin: yes
+    next_trakt_episodes:
+      username: miusuario
+      account: miusuario
+      context: watched
+      list: series
+
+  sync-movies:
+    trakt_list:
+      username: miusuario
+      account: miusuario
+      list: pelis
+    accept_all: yes
+    list_add:
+      - movie_list: pelis
+
+  discover-series:
+    template: series
+    discover:
+      what:
+        - next_trakt_episodes:
+            username: miusuario
+            account: miusuario
+            context: watched
+            list: series
+      from:
+        - argenteam:
+            force_subtitles: yes
+        - 1337x:
+            order_by: seeders
+        - rarbg:
+            category:
+              - 49
+              - HDTV
+              - SDTV
+            sorted_by: seeders
+            min_seeders: 1
+        - piratebay:
+            category: highres tv
+            sort_by: seeds
+            sort_reverse: false
+        - piratebay:
+            category: tv
+            sort_by: seeds
+            sort_reverse: false
+        - search_rss:
+            url: https://eztv.re/ezrss.xml
+            all_entries: no
+            ascii: yes
+            escape: yes
+            link:
+              - link
+              - magneturi
+        - limetorrents:
+            category: tv
+            order_by: seeds
+    list_match:
+      from:
+        - trakt_list:
+            username: miusuario
+            account: miusuario
+            list: series
+            type: shows
+    torrent_alive: 1
+    transmission:
+      host: transmission
+      port: 9091
+      username: admin
+      password: "123456"
+      add_paused: no
+      main_file_only: yes
+      include_subs: yes
+      skip_files:
+        - '*.sfv'
+        - '*[sS]ample*'
+        - '*.txt'
+        - '*.lnk'
+
+  discover-movies:
+    template: movies
+    quality: 720p+ hdtv+
+    discover:
+      what:
+        - movie_list:
+            list_name: pelis
+            strip_year: yes
+      from:
+        - argenteam:
+            force_subtitles: yes
+        - 1337x:
+            order_by: seeders
+        - piratebay:
+            category: highres movies
+            sort_by: seeds
+            sort_reverse: false
+        - piratebay:
+            category: movies
+            sort_by: seeds
+            sort_reverse: false
+        - search_rss:
+            url: https://eztv.re/ezrss.xml
+            all_entries: no
+            ascii: yes
+            escape: yes
+            link:
+              - link
+              - magneturi
+        - yts: yes
+      interval: 1 days
+    list_match:
+      from:
+        - movie_list: pelis
+    torrent_alive: 1
+    transmission:
+      host: transmission
+      port: 9091
+      username: admin
+      password: "123456"
+      add_paused: no
+      main_file_only: yes
+      include_subs: yes
+      skip_files:
+        - '*.sfv'
+        - '*[sS]ample*'
+        - '*.txt'
+        - '*.lnk'
+
+  sort-series:
+    priority: 2
+    no_entries_ok: yes
+    parsing:
+      series: guessit
+    filesystem:
+      path: /downloads/complete
+      regexp: '.*\.(avi|mkv|mp4)$'
+      recursive: yes
+    accept_all: yes
+    thetvdb_lookup: yes
+    require_field: series_name
+    all_series:
+      parse_only: yes
+    exec:
+      auto_escape: yes
+      on_output:
+        for_entries: |
+          if mediainfo "{{ location }}" | grep EAC3; then
+            sudo mkdir -p "/storage/series/{{ tvdb_series_name }}/Season {{ series_season }}" && sudo ffmpeg -hwaccel auto -y -i "{{ location }}" -map 0 -c:s copy -c:v copy -c:a ac3 -b:a 640k "/storage/series/{{ tvdb_series_name }}/Season {{ series_season }}/{{ tvdb_series_name }} - {{ series_id }}{{ location | pathext }}"
+          else
+            sudo mkdir -p "/storage/series/{{ tvdb_series_name }}/Season {{ series_season }}" && sudo cp "{{ location }}" "/storage/series/{{ tvdb_series_name }}/Season {{ series_season }}/{{ tvdb_series_name }} - {{ series_id }}{{ location | pathext }}"
+          fi
+
+  sort-movies:
+    priority: 2
+    no_entries_ok: yes
+    filesystem:
+      path: /downloads/complete
+      regexp: '.*\.(avi|mkv|mp4)$'
+      recursive: yes
+    accept_all: yes
+    require_field: movie_name
+    imdb_lookup: yes
+    exec:
+      auto_escape: yes
+      on_output:
+       for_entries: |
+         if mediainfo "{{ location }}" | grep EAC3; then
+           sudo mkdir -p "/storage/pelis/{{ movie_name }} ({{ movie_year }})" && sudo ffmpeg -hwaccel auto -y -i "{{ location }}" -map 0 -c:s copy -c:v copy -c:a ac3 -b:a 640k "/storage/pelis/{{ movie_name }} ({{ movie_year }})/{{ movie_name }} ({{ movie_year }}){{ location | pathext }}"
+         else
+           sudo mkdir -p "/storage/pelis/{{ movie_name }} ({{ movie_year }})" && sudo cp "{{ location }}" "/storage/pelis/{{ movie_name }} ({{ movie_year }})/{{ movie_name }} ({{ movie_year }}){{ location | pathext }}"
+         fi
+
+  remove-stale-torrents:
+    from_transmission:
+      host: transmission
+      port: 9091
+      username: admin
+      password: "123456"
+    disable: [seen, seen_info_hash]
+    if:
+      - transmission_progress == 100: accept
+      - not transmission_seed_ratio_ok: reject
+      - not transmission_idle_limit_ok: reject
+    transmission:
+      host: transmission
+      port: 9091
+      username: admin
+      password: "123456"
+      action: purge
